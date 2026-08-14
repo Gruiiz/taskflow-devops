@@ -31,9 +31,8 @@ class TaskStoreTest(unittest.TestCase):
         invalid_titles = [None, 42, "   ", "x" * 121]
 
         for title in invalid_titles:
-            with self.subTest(title=title):
-                with self.assertRaises(TaskValidationError):
-                    self.store.create(title)
+            with self.subTest(title=title), self.assertRaises(TaskValidationError):
+                self.store.create(title)
 
     def test_task_serializes_to_dictionary(self) -> None:
         task = self.store.create("Documentar arquitetura")

@@ -74,7 +74,7 @@ resource "aws_security_group" "alb" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP público"
+    description = "HTTP publico"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -91,11 +91,11 @@ resource "aws_security_group" "alb" {
 
 resource "aws_security_group" "service" {
   name        = "${local.name}-service"
-  description = "Aceita somente tráfego originado no ALB"
+  description = "Aceita somente trafego originado no ALB"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description     = "Aplicação via ALB"
+    description     = "Aplicacao via ALB"
     from_port       = var.container_port
     to_port         = var.container_port
     protocol        = "tcp"
