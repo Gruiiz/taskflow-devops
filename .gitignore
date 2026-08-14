@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.coverage
+coverage.xml
+.ruff_cache/
+.venv/
+venv/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+terraform.tfvars
+.DS_Store
+.idea/
+.vscode/

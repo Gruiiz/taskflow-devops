@@ -1,0 +1,5 @@
+project_name    = "taskflow"
+environment     = "dev"
+aws_region      = "us-east-1"
+container_image = "ghcr.io/Gruiiz/taskflow-api:latest"
+desired_count   = 1
