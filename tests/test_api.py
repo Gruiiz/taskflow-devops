@@ -51,6 +51,21 @@ class TaskFlowApiTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(body, {"status": "ok"})
 
+    def test_version_and_security_headers(self) -> None:
+        request = Request(
+            self.base_url + "/version",
+            headers={"X-Request-ID": "phase2-test"},
+            method="GET",
+        )
+
+        with urlopen(request, timeout=2) as response:
+            body = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(response.status, 200)
+            self.assertEqual(body["service"], "taskflow-api")
+            self.assertIn("version", body)
+            self.assertEqual(response.headers["X-Request-ID"], "phase2-test")
+            self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+
     def test_task_lifecycle(self) -> None:
         create_status, created = self.request("POST", "/tasks", {"title": "Criar CI"})
         list_status, listed = self.request("GET", "/tasks")

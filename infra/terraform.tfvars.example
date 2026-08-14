@@ -1,5 +1,9 @@
 project_name    = "taskflow"
 environment     = "dev"
 aws_region      = "us-east-1"
-container_image = "ghcr.io/Gruiiz/taskflow-api:latest"
+# No AWS Academy, descomente e substitua pelo ARN da LabRole.
+# ecs_execution_role_arn = "arn:aws:iam::123456789012:role/LabRole"
+container_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/taskflow:COMMIT_SHA"
+app_version     = "COMMIT_SHA"
+log_level       = "INFO"
 desired_count   = 1

@@ -1,9 +1,34 @@
 services:
   api:
+    image: ${TASKFLOW_IMAGE:-taskflow-api:local}
     build: .
     ports:
       - "8000:8000"
     restart: unless-stopped
     read_only: true
+    init: true
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      APP_VERSION: ${APP_VERSION:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"

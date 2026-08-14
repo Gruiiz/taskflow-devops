@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+import time
+import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -14,6 +17,21 @@ from app.domain import TaskStore, TaskValidationError
 
 LOGGER = logging.getLogger("taskflow")
 MAX_REQUEST_BYTES = 16_384
+APP_ENV = os.getenv("APP_ENV", "development")
+APP_VERSION = os.getenv("APP_VERSION", "1.1.0")
+
+
+def log_event(level: int, event: str, **fields: object) -> None:
+    """Write one structured JSON event for CloudWatch and local Docker logs."""
+
+    payload = {
+        "event": event,
+        "service": "taskflow-api",
+        "environment": APP_ENV,
+        "version": APP_VERSION,
+        **fields,
+    }
+    LOGGER.log(level, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
 
 class TaskFlowRequestHandler(BaseHTTPRequestHandler):
@@ -23,9 +41,17 @@ class TaskFlowRequestHandler(BaseHTTPRequestHandler):
     server_version = "TaskFlow/1.0"
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
+        self._begin_request()
         path = self._request_path()
         if path == "/health":
             self._send_json(HTTPStatus.OK, {"status": "ok"})
+            return
+
+        if path == "/version":
+            self._send_json(
+                HTTPStatus.OK,
+                {"service": "taskflow-api", "version": APP_VERSION, "environment": APP_ENV},
+            )
             return
 
         if path == "/tasks":
@@ -45,6 +71,7 @@ class TaskFlowRequestHandler(BaseHTTPRequestHandler):
         self._send_error(HTTPStatus.NOT_FOUND, "Rota não encontrada.")
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
+        self._begin_request()
         if self._request_path() != "/tasks":
             self._send_error(HTTPStatus.NOT_FOUND, "Rota não encontrada.")
             return
@@ -68,6 +95,7 @@ class TaskFlowRequestHandler(BaseHTTPRequestHandler):
         self._send_json(HTTPStatus.CREATED, task.to_dict())
 
     def do_DELETE(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler contract
+        self._begin_request()
         task_id = self._task_id_from_path(self._request_path())
         if task_id is None:
             self._send_error(HTTPStatus.NOT_FOUND, "Rota não encontrada.")
@@ -114,11 +142,35 @@ class TaskFlowRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'none'")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Request-ID", self.request_id)
         self.end_headers()
         self.wfile.write(body)
 
+        started_at = getattr(self, "_request_started_at", time.perf_counter())
+        log_event(
+            logging.INFO,
+            "http_request",
+            request_id=self.request_id,
+            method=self.command,
+            path=self._request_path(),
+            status=status.value,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 2),
+        )
+
+    def _begin_request(self) -> None:
+        self._request_started_at = time.perf_counter()
+        candidate = self.headers.get("X-Request-ID", "")
+        allowed = candidate and len(candidate) <= 64 and all(
+            character.isalnum() or character in "-_." for character in candidate
+        )
+        self.request_id = candidate if allowed else uuid.uuid4().hex
+
     def log_message(self, format: str, *args: object) -> None:
-        LOGGER.info("%s - %s", self.address_string(), format % args)
+        # Access events are emitted in structured form by ``_send_json``.
+        return
 
 
 class RequestTooLargeError(ValueError):
@@ -135,7 +187,9 @@ def create_handler(store: TaskStore) -> type[TaskFlowRequestHandler]:
 
 
 def create_server(
-    host: str = "0.0.0.0", port: int = 8000, store: TaskStore | None = None
+    host: str = "0.0.0.0",  # nosec B104 - container must listen on every interface
+    port: int = 8000,
+    store: TaskStore | None = None,
 ) -> ThreadingHTTPServer:
     """Build the HTTP server. Tests use port zero for an ephemeral port."""
 
@@ -145,20 +199,24 @@ def create_server(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="TaskFlow API")
-    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",  # nosec B104 - explicit container bind address
+    )
     parser.add_argument("--port", type=int, default=8000)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    configured_level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    logging.basicConfig(level=configured_level, format="%(message)s")
     server = create_server(args.host, args.port)
-    LOGGER.info("TaskFlow disponível em http://%s:%s", args.host, args.port)
+    log_event(logging.INFO, "service_started", host=args.host, port=args.port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        LOGGER.info("Encerrando TaskFlow")
+        log_event(logging.INFO, "service_stopping")
     finally:
         server.server_close()
 

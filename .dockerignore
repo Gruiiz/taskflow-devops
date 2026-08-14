@@ -3,7 +3,12 @@
 .terraform
 infra
 tests
+docs
+scripts
 __pycache__
 *.pyc
 .coverage
 .venv
+README.md
+Makefile
+requirements-dev.txt

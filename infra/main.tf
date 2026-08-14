@@ -17,12 +17,49 @@ data "aws_iam_policy_document" "ecs_task_assume_role" {
 locals {
   name = "${var.project_name}-${var.environment}"
 
+  task_execution_role_arn = var.ecs_execution_role_arn != null ? var.ecs_execution_role_arn : aws_iam_role.task_execution[0].arn
+
   common_tags = {
     Project     = var.project_name
     Environment = var.environment
     ManagedBy   = "Terraform"
     Course      = "DevOps-na-Pratica"
   }
+}
+
+resource "aws_ecr_repository" "api" {
+  name                 = var.project_name
+  image_tag_mutability = "IMMUTABLE"
+  force_delete         = true
+
+  encryption_configuration {
+    encryption_type = "AES256"
+  }
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "api" {
+  repository = aws_ecr_repository.api.name
+
+  policy = jsonencode({
+    rules = [
+      {
+        rulePriority = 1
+        description  = "Manter somente as 10 imagens mais recentes"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 10
+        }
+        action = {
+          type = "expire"
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_vpc" "main" {
@@ -162,12 +199,16 @@ resource "aws_cloudwatch_log_group" "api" {
 }
 
 resource "aws_iam_role" "task_execution" {
+  count = var.ecs_execution_role_arn == null ? 1 : 0
+
   name               = "${local.name}-task-execution"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
 }
 
 resource "aws_iam_role_policy_attachment" "task_execution" {
-  role       = aws_iam_role.task_execution.name
+  count = var.ecs_execution_role_arn == null ? 1 : 0
+
+  role       = aws_iam_role.task_execution[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
@@ -177,13 +218,35 @@ resource "aws_ecs_task_definition" "api" {
   network_mode             = "awsvpc"
   cpu                      = 256
   memory                   = 512
-  execution_role_arn       = aws_iam_role.task_execution.arn
+  execution_role_arn       = local.task_execution_role_arn
 
   container_definitions = jsonencode([
     {
-      name      = "api"
-      image     = var.container_image
-      essential = true
+      name                   = "api"
+      image                  = var.container_image
+      essential              = true
+      user                   = "taskflow"
+      readonlyRootFilesystem = true
+      environment = [
+        {
+          name  = "APP_ENV"
+          value = var.environment
+        },
+        {
+          name  = "APP_VERSION"
+          value = var.app_version
+        },
+        {
+          name  = "LOG_LEVEL"
+          value = var.log_level
+        }
+      ]
+      linuxParameters = {
+        initProcessEnabled = true
+        capabilities = {
+          drop = ["ALL"]
+        }
+      }
       portMappings = [
         {
           containerPort = var.container_port
@@ -214,11 +277,21 @@ resource "aws_ecs_task_definition" "api" {
 }
 
 resource "aws_ecs_service" "api" {
-  name            = local.name
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.api.arn
-  desired_count   = var.desired_count
-  launch_type     = "FARGATE"
+  name                               = local.name
+  cluster                            = aws_ecs_cluster.main.id
+  task_definition                    = aws_ecs_task_definition.api.arn
+  desired_count                      = var.desired_count
+  launch_type                        = "FARGATE"
+  health_check_grace_period_seconds  = 30
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+  enable_execute_command              = false
+  propagate_tags                      = "SERVICE"
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
@@ -233,4 +306,100 @@ resource "aws_ecs_service" "api" {
   }
 
   depends_on = [aws_lb_listener.http]
+}
+
+resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+  alarm_name          = "${local.name}-cpu-high"
+  alarm_description   = "CPU média do serviço ECS acima de 80%."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.main.name
+    ServiceName = aws_ecs_service.api.name
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "memory_high" {
+  alarm_name          = "${local.name}-memory-high"
+  alarm_description   = "Memória média do serviço ECS acima de 80%."
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = 2
+  metric_name         = "MemoryUtilization"
+  namespace           = "AWS/ECS"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.main.name
+    ServiceName = aws_ecs_service.api.name
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+  alarm_name          = "${local.name}-alb-5xx"
+  alarm_description   = "O balanceador retornou respostas HTTP 5xx."
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "HTTPCode_ELB_5XX_Count"
+  namespace           = "AWS/ApplicationELB"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 1
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+  }
+}
+
+resource "aws_cloudwatch_dashboard" "main" {
+  dashboard_name = "${local.name}-operations"
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "metric"
+        x      = 0
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "ECS - CPU e memória"
+          view   = "timeSeries"
+          region = var.aws_region
+          period = 60
+          metrics = [
+            ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", aws_ecs_service.api.name],
+            [".", "MemoryUtilization", ".", ".", ".", "."]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        x      = 12
+        y      = 0
+        width  = 12
+        height = 6
+        properties = {
+          title  = "ALB - requisições e erros"
+          view   = "timeSeries"
+          region = var.aws_region
+          period = 60
+          metrics = [
+            ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.main.arn_suffix],
+            [".", "HTTPCode_ELB_5XX_Count", ".", "."]
+          ]
+        }
+      }
+    ]
+  })
 }

@@ -21,9 +21,41 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
-variable "container_image" {
-  description = "Imagem pública da TaskFlow API, por exemplo ghcr.io/usuario/taskflow-api:latest."
+variable "ecs_execution_role_arn" {
+  description = "ARN de uma função existente, como LabRole; se nulo, o Terraform cria uma."
   type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = (
+      var.ecs_execution_role_arn == null ||
+      can(regex("^arn:aws:iam::[0-9]{12}:role/.+", var.ecs_execution_role_arn))
+    )
+    error_message = "Informe um ARN de função IAM válido ou mantenha null."
+  }
+}
+
+variable "container_image" {
+  description = "Imagem imutável da TaskFlow API armazenada no Amazon ECR."
+  type        = string
+}
+
+variable "app_version" {
+  description = "Versão imutável da aplicação exibida nos logs."
+  type        = string
+  default     = "bootstrap"
+}
+
+variable "log_level" {
+  description = "Nível de log da aplicação."
+  type        = string
+  default     = "INFO"
+
+  validation {
+    condition     = contains(["DEBUG", "INFO", "WARNING", "ERROR"], var.log_level)
+    error_message = "log_level deve ser DEBUG, INFO, WARNING ou ERROR."
+  }
 }
 
 variable "container_port" {
