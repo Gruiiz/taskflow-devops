@@ -285,8 +285,8 @@ resource "aws_ecs_service" "api" {
   health_check_grace_period_seconds  = 30
   deployment_minimum_healthy_percent = 100
   deployment_maximum_percent         = 200
-  enable_execute_command              = false
-  propagate_tags                      = "SERVICE"
+  enable_execute_command             = false
+  propagate_tags                     = "SERVICE"
 
   deployment_circuit_breaker {
     enable   = true
