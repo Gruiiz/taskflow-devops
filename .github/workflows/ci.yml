@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Baixar código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Configurar Python
         uses: actions/setup-python@v6
@@ -62,7 +62,7 @@ jobs:
         working-directory: infra
     steps:
       - name: Baixar código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Configurar Terraform
         uses: hashicorp/setup-terraform@v4
@@ -88,7 +88,7 @@ jobs:
       packages: write
     steps:
       - name: Baixar código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -172,7 +172,7 @@ jobs:
       ALB_NAME: ${{ vars.ALB_NAME || 'taskflow-dev-alb' }}
     steps:
       - name: Baixar código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Autenticar na AWS com OIDC
         if: vars.AWS_ROLE_ARN != ''
