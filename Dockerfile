@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.12.14-alpine3.24
 
 ARG APP_VERSION=dev
 
@@ -15,8 +15,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN addgroup --system taskflow \
-    && adduser --system --ingroup taskflow taskflow
+RUN addgroup -S taskflow \
+    && adduser -S -G taskflow taskflow
 
 COPY --chown=taskflow:taskflow app ./app
 
