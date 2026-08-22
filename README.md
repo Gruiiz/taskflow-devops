@@ -13,7 +13,7 @@ Terraform.
 - validação automática do Terraform;
 - build, smoke test e scan de vulnerabilidades da imagem Docker;
 - publicação automática de imagens versionadas no GitHub Container Registry;
-- entrega aprovada para Amazon ECR e Amazon ECS Fargate;
+- promoção aprovada para Amazon ECR e Amazon ECS Fargate;
 - health checks, rollback automático e logs estruturados no CloudWatch;
 - alarmes de CPU, memória e erros HTTP 5xx, além de dashboard operacional;
 - scripts de deploy local, bootstrap AWS, atualização, rollback e destruição.
@@ -21,24 +21,25 @@ Terraform.
 ## Fluxo de CI/CD
 
 ```mermaid
-flowchart LR
-    A[Push ou pull request] --> B[Qualidade e Bandit]
+flowchart TD
+    A[Push ou pull request] --> B[Qualidade, Bandit e testes]
     A --> C[Terraform fmt e validate]
-    B --> D[Testes e cobertura]
-    D --> E[Build Docker]
-    E --> F[Trivy e smoke test]
-    F --> G[Imagem no GHCR]
-    G --> H{Aprovação de entrega}
-    H --> I[Imagem no Amazon ECR]
-    I --> J[ECS Fargate]
-    J --> K[Health check]
-    K --> L[CloudWatch]
-    K -->|falha| M[Rollback automático]
+    B --> D[Build, Trivy e smoke test]
+    C --> D
+    D --> E[Imagem imutável no GHCR]
+    E --> F{Promoção aprovada}
+    F --> G[Runner autorizado ou terminal Academy]
+    G --> H[Amazon ECR]
+    H --> I[ECS Fargate e ALB]
+    I --> J[Smoke test e CloudWatch]
+    I -->|falha| K[Rollback automático]
 ```
 
-O push em `main` entrega uma imagem rastreável pelo SHA do commit. O deploy na AWS é
-iniciado manualmente em `Actions > CI/CD - TaskFlow > Run workflow`, mantendo uma barreira
-consciente contra consumo acidental do crédito acadêmico.
+O push em `main` publica uma imagem rastreável pelo SHA completo do commit. Em contas AWS
+que autorizam runners externos, o job manual do GitHub Actions promove a versão ao ECR e
+ao ECS. No AWS Academy usado na demonstração, uma política acadêmica bloqueou credenciais
+fora do laboratório; por isso, o mesmo artefato aprovado foi promovido pelo terminal
+autenticado do Learner Lab, sem rebuild.
 
 ## Estrutura do repositório
 
@@ -74,21 +75,20 @@ curl http://localhost:8000/version
 docker compose down
 ```
 
-A imagem executa sem privilégios, com filesystem somente leitura, capabilities removidas,
-health check e limite de rotação dos logs locais.
+A imagem usa `python:3.12.14-alpine3.24` e executa sem privilégios, com filesystem somente
+leitura, capabilities removidas, health check e limite de rotação dos logs locais.
 
 ## Implantar no AWS Academy
 
-O guia completo está em [docs/aws-academy.md](docs/aws-academy.md). Para a primeira
-implantação, depois de iniciar o Learner Lab e configurar as credenciais temporárias:
+O guia completo está em [docs/aws-academy.md](docs/aws-academy.md). Ele documenta dois
+caminhos:
 
-```bash
-export ECS_EXECUTION_ROLE_ARN="arn:aws:iam::SEU_ACCOUNT_ID:role/LabRole"
-./scripts/bootstrap-aws.sh
-```
+- `bootstrap-aws.sh`, quando o daemon Docker está disponível;
+- promoção da imagem aprovada do GHCR para o ECR com Crane, quando o terminal web não
+  permite usar o daemon Docker ou credenciais em runners externos.
 
-O script cria primeiro o ECR, publica a imagem e somente então provisiona ECS, ALB,
-CloudWatch e rede. Nenhuma credencial é gravada no repositório.
+Em ambos os casos, o Terraform cria VPC, ECR, ECS Fargate, ALB, CloudWatch e controles de
+segurança. Nenhuma credencial é gravada no repositório.
 
 > O ECS Fargate, o Application Load Balancer, o CloudWatch e endereços IPv4 podem consumir
 > os créditos da conta. Ao terminar a demonstração, destrua o ambiente.
@@ -96,6 +96,12 @@ CloudWatch e rede. Nenhuma credencial é gravada no repositório.
 ```bash
 CONFIRM_DESTROY=taskflow-dev ./scripts/destroy-aws.sh
 ```
+
+## Resultado prático de segurança
+
+O scan inicial encontrou 4 vulnerabilidades críticas, 8 altas e 6 médias. Após a troca da
+base Debian slim por Alpine 3.24, o pipeline permaneceu verde, a nova imagem foi implantada
+e o scan final do ECR apresentou zero achados.
 
 ## Endpoints
 
