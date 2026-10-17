@@ -91,7 +91,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Configurar Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Construir imagem imutável
         uses: docker/build-push-action@v6
