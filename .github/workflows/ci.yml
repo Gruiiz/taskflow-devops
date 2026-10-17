@@ -215,7 +215,7 @@ jobs:
 
       - name: Inserir a imagem na definição de tarefa
         id: task-definition
-        uses: aws-actions/amazon-ecs-render-task-definition@v1.8.5
+        uses: aws-actions/amazon-ecs-render-task-definition@v1.9.0
         with:
           task-definition: task-definition.json
           container-name: ${{ env.ECS_CONTAINER }}
