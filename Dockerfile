@@ -1,4 +1,4 @@
-FROM python:3.12.14-alpine3.24
+FROM python:3.15.0-alpine3.24
 
 ARG APP_VERSION=dev
 
